@@ -1,0 +1,31 @@
+name: Build coastline overlay
+
+on:
+  workflow_dispatch:   # manual trigger only -- this is a one-off, not a schedule
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pillow requests
+
+      - name: Build coastline overlay
+        run: python build_coastline_overlay.py
+
+      - name: Commit overlay
+        run: |
+          git config user.name "radar-bot"
+          git config user.email "radar-bot@users.noreply.github.com"
+          git add coastline_overlay.png
+          git diff --quiet --cached || git commit -m "Build coastline overlay"
+          git push
