@@ -2,19 +2,27 @@
 """
 fetch_radar.py
 --------------
-Runs on a server / Raspberry Pi / any always-on machine (NOT the Pico).
+Runs on a server / Raspberry Pi / GitHub Actions (NOT the Pico).
 
 Pipeline:
   1. Ask RainViewer for the latest available radar frame.
-  2. Work out which XYZ tiles cover a UK bounding box at a chosen zoom.
-  3. Download and stitch those tiles into one image.
-  4. Optionally composite a plain basemap (coastline/borders) underneath so
-     the radar isn't floating on a blank background.
-  5. Crop to the exact bounding box, resize to the e-paper resolution
-     (400x300 for the Waveshare 4.2"), and quantize to 4 grayscale levels
-     using ordered (Bayer) dithering.
-  6. Pack the result to 2 bits-per-pixel and write it to a .bin file that
-     the Pico W will download over HTTP.
+  2. Work out which XYZ tiles cover the UK bounding box (from geo_utils,
+     already aspect-fitted to a 300x400 portrait canvas) at a chosen zoom.
+  3. Download and stitch those tiles into one image, crop to the bbox,
+     resize to 300x400.
+  4. Composite the static coastline_overlay.png on top (see
+     build_coastline_overlay.py -- run once, not part of this hot path).
+  5. Quantize to 4 grayscale levels using ordered (Bayer) dithering.
+  6. IMPORTANT: the Waveshare 4.2" controller's native buffer is always
+     400 (x) x 300 (y), regardless of how you mount the panel. Since we've
+     rendered everything in *logical* portrait space (300x400) because
+     that's the shape the UK actually fits, the final step rotates the
+     image 90 degrees into the controller's native landscape buffer order.
+     You then physically mount the panel rotated 90 degrees so it reads
+     as portrait. If it comes out upside-down after mounting, flip
+     ROTATE_90 to ROTATE_270 below -- that's a one-line fix, not a bug in
+     the pipeline.
+  7. Pack to 2 bits-per-pixel and write a .bin file for the Pico to fetch.
 
 Data source: RainViewer Weather Maps API (https://www.rainviewer.com/api.html)
   - Free for personal / educational / small-scale use.
@@ -26,70 +34,48 @@ Requires: pip install pillow requests numpy
 """
 
 import io
-import math
 import time
 import requests
 import numpy as np
 from PIL import Image
 
+import geo_utils
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Roughly the British Isles. Tweak to taste (e.g. tighten to just England).
-UK_BBOX = {
-    "lat_min": 49.8,
-    "lat_max": 61.0,
-    "lon_min": -8.5,
-    "lon_max": 2.0,
-}
+ZOOM = geo_utils.ZOOM
+TILE_SIZE = geo_utils.TILE_SIZE
+UK_BBOX = geo_utils.UK_BBOX
 
-ZOOM = 6              # RainViewer tiles go up to zoom 7 (512px tiles) on the free tier
-TILE_SIZE = 256        # 256 or 512
 COLOR_SCHEME = 2       # RainViewer palette id (2 = "Universal Blue"), see rainviewer.com/api/color-schemes.html
 SMOOTH = 1             # 1 = smoothed tiles, 0 = raw pixels
 SNOW = 1               # 1 = show snow separately
 
-# Waveshare 4.2" e-paper (Pico version) native resolution
-EPD_WIDTH = 400
-EPD_HEIGHT = 300
+# Logical (portrait) render size -- see geo_utils. The panel's *native*
+# buffer is the transpose of this (see rotation step below).
+LOGICAL_WIDTH = geo_utils.EPD_WIDTH    # 300
+LOGICAL_HEIGHT = geo_utils.EPD_HEIGHT  # 400
 
-OUTPUT_BIN = "radar_400x300_2bpp.bin"
+COASTLINE_OVERLAY_PATH = "coastline_overlay.png"  # built once by build_coastline_overlay.py
 
-# Basemap (optional). OpenStreetMap's standard tile server is free but has a
-# strict usage policy for automated/bulk fetching (see
-# https://operations.osmfoundation.org/policies/tiles/). Because this script
-# only runs every 10-15 minutes and fetches a handful of tiles, it's within
-# reasonable personal use, but set your own User-Agent and don't lower the
-# refresh interval further. Set USE_BASEMAP = False to skip it entirely and
-# just show radar-on-white, which is simpler and avoids the policy question.
-USE_BASEMAP = True
-OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+OUTPUT_BIN = "radar_300x400_2bpp.bin"
+
 USER_AGENT = "uk-radar-eink-display/1.0 (personal project; contact: you@example.com)"
-
 RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json"
 
 
 # ---------------------------------------------------------------------------
-# Slippy-map tile math (standard Web Mercator XYZ scheme)
+# Slippy-map tiling: stitch tiles covering UK_BBOX at ZOOM, crop precisely
 # ---------------------------------------------------------------------------
 
-def deg2tile(lat_deg, lon_deg, zoom):
-    lat_rad = math.radians(lat_deg)
-    n = 2.0 ** zoom
-    x = (lon_deg + 180.0) / 360.0 * n
-    y = (1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n
-    return x, y
-
-
 def tile_pixel_bounds(bbox, zoom, tile_size):
-    """Return (x0_tile, y0_tile, x1_tile, y1_tile, px_bbox) where px_bbox is
-    the crop rectangle in pixel space of the stitched image."""
-    x0, y0 = deg2tile(bbox["lat_max"], bbox["lon_min"], zoom)  # top-left
-    x1, y1 = deg2tile(bbox["lat_min"], bbox["lon_max"], zoom)  # bottom-right
+    x0, y0 = geo_utils.deg2tile(bbox["lat_max"], bbox["lon_min"], zoom)  # top-left
+    x1, y1 = geo_utils.deg2tile(bbox["lat_min"], bbox["lon_max"], zoom)  # bottom-right
 
-    tx0, ty0 = math.floor(x0), math.floor(y0)
-    tx1, ty1 = math.floor(x1), math.floor(y1)
+    tx0, ty0 = int(x0), int(y0)
+    tx1, ty1 = int(x1), int(y1)
 
     px0 = int((x0 - tx0) * tile_size)
     py0 = int((y0 - ty0) * tile_size)
@@ -105,10 +91,9 @@ def fetch_tile(url, session):
     return Image.open(io.BytesIO(r.content)).convert("RGBA")
 
 
-def stitch_tiles(url_template, bbox, zoom, tile_size, session):
+def stitch_radar_tiles(url_template, bbox, zoom, tile_size, session):
     tx0, ty0, tx1, ty1, crop_box = tile_pixel_bounds(bbox, zoom, tile_size)
-    cols = tx1 - tx0 + 1
-    rows = ty1 - ty0 + 1
+    cols, rows = tx1 - tx0 + 1, ty1 - ty0 + 1
 
     canvas = Image.new("RGBA", (cols * tile_size, rows * tile_size), (0, 0, 0, 0))
     for row, ty in enumerate(range(ty0, ty1 + 1)):
@@ -138,7 +123,7 @@ def get_latest_radar_path(session):
 
 
 # ---------------------------------------------------------------------------
-# Image processing: composite -> 4-level grayscale -> 2bpp pack
+# Image processing: composite -> 4-level grayscale -> rotate -> 2bpp pack
 # ---------------------------------------------------------------------------
 
 BAYER_4X4 = np.array([
@@ -151,13 +136,11 @@ BAYER_4X4 = np.array([
 
 def ordered_dither_to_4level(gray_img):
     """gray_img: PIL 'L' image. Returns an array of values in {0,1,2,3}
-    (0 = white, 3 = black) using 4x4 Bayer ordered dithering, which looks
-    much better on e-ink than naive rounding."""
-    arr = np.asarray(gray_img, dtype=np.float64) / 255.0  # 0=black .. 1=white in PIL's L
+    (0 = white, 3 = black) using 4x4 Bayer ordered dithering."""
+    arr = np.asarray(gray_img, dtype=np.float64) / 255.0
     h, w = arr.shape
     bayer_tiled = np.tile(BAYER_4X4, (h // 4 + 1, w // 4 + 1))[:h, :w]
 
-    # invert so higher "ink" value = darker, then quantize to 4 levels with dither
     ink = 1.0 - arr
     levels = 3
     dithered = ink + (bayer_tiled - 0.5) / levels
@@ -188,27 +171,34 @@ def build_frame():
     radar_tile_url = (
         host + path + f"/{TILE_SIZE}/{{z}}/{{x}}/{{y}}/{COLOR_SCHEME}/{SMOOTH}_{SNOW}.png"
     )
-    radar_img = stitch_tiles(radar_tile_url, UK_BBOX, ZOOM, TILE_SIZE, session)
+    radar_img = stitch_radar_tiles(radar_tile_url, UK_BBOX, ZOOM, TILE_SIZE, session)
+    radar_img = radar_img.resize((LOGICAL_WIDTH, LOGICAL_HEIGHT), Image.LANCZOS).convert("RGBA")
 
-    if USE_BASEMAP:
-        base_img = stitch_tiles(OSM_TILE_URL, UK_BBOX, ZOOM, TILE_SIZE, session).convert("RGBA")
-        # Lighten the basemap so radar reads clearly on top once quantized
-        base_img = Image.eval(base_img.convert("L"), lambda p: int(200 + p * 55 / 255)).convert("RGBA")
-        composite = Image.alpha_composite(base_img, radar_img)
-    else:
-        white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
-        composite = Image.alpha_composite(white_bg, radar_img)
+    white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
+    composite = Image.alpha_composite(white_bg, radar_img)
 
-    composite = composite.convert("RGB").resize((EPD_WIDTH, EPD_HEIGHT), Image.LANCZOS)
+    coastline = Image.open(COASTLINE_OVERLAY_PATH).convert("RGBA")
+    if coastline.size != composite.size:
+        raise RuntimeError(
+            f"coastline_overlay.png is {coastline.size}, expected {composite.size}. "
+            "Re-run build_coastline_overlay.py after changing geo_utils dimensions."
+        )
+    composite = Image.alpha_composite(composite, coastline)
+
     gray = composite.convert("L")
 
-    levels = ordered_dither_to_4level(gray)
+    # Rotate logical portrait (300x400) into the controller's native buffer
+    # order (400x300). Flip to ROTATE_270 if the mounted panel reads upside
+    # down or mirrored.
+    native = gray.transpose(Image.ROTATE_90)
+
+    levels = ordered_dither_to_4level(native)
     packed = pack_2bpp(levels)
 
     with open(OUTPUT_BIN, "wb") as f:
         f.write(packed)
 
-    print(f"Wrote {OUTPUT_BIN}: {len(packed)} bytes for {EPD_WIDTH}x{EPD_HEIGHT} @ 2bpp")
+    print(f"Wrote {OUTPUT_BIN}: {len(packed)} bytes (native buffer {native.size[0]}x{native.size[1]})")
     return OUTPUT_BIN
 
 
