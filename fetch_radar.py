@@ -62,6 +62,14 @@ COASTLINE_OVERLAY_PATH = "coastline_overlay.png"  # built once by build_coastlin
 
 OUTPUT_BIN = "radar_300x400_2bpp.bin"
 
+# Debug PNGs, saved alongside the .bin so you can visually compare pipeline
+# output against a photo of the physical panel. Set False once you trust
+# the pipeline -- committing PNGs every 15 min bloats repo history faster
+# than the tiny .bin does.
+DEBUG_SAVE_PNG = True
+DEBUG_COMPOSITE_PATH = "debug_composite.png"  # full-color, logical portrait, human-readable
+DEBUG_PREVIEW_PATH = "debug_preview.png"      # quantized 4-gray, native rotation -- matches panel exactly
+
 USER_AGENT = "uk-radar-eink-display/1.0 (personal project; contact: you@example.com)"
 RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json"
 
@@ -148,6 +156,16 @@ def ordered_dither_to_4level(gray_img):
     return quant  # 0 = white ... 3 = black
 
 
+def levels_to_preview_image(levels):
+    """Turn the quantized 0-3 level array back into a viewable 8-bit
+    grayscale PNG (0->white, 3->black), so you can look at exactly what
+    the panel is being sent, pixel-for-pixel, without decoding the .bin
+    by hand."""
+    shade_map = np.array([255, 170, 85, 0], dtype=np.uint8)  # level 0..3 -> gray value
+    preview_arr = shade_map[levels]
+    return Image.fromarray(preview_arr, mode="L")
+
+
 def pack_2bpp(levels):
     """Pack a (H, W) array of 2-bit values (0-3) into bytes, 4 pixels/byte,
     MSB-first, matching the format Waveshare's 4Gray demo code expects."""
@@ -185,6 +203,10 @@ def build_frame():
         )
     composite = Image.alpha_composite(composite, coastline)
 
+    if DEBUG_SAVE_PNG:
+        composite.convert("RGB").save(DEBUG_COMPOSITE_PATH)
+        print(f"Wrote {DEBUG_COMPOSITE_PATH} (full-color, {composite.size[0]}x{composite.size[1]})")
+
     gray = composite.convert("L")
 
     # Rotate logical portrait (300x400) into the controller's native buffer
@@ -194,6 +216,11 @@ def build_frame():
 
     levels = ordered_dither_to_4level(native)
     packed = pack_2bpp(levels)
+
+    if DEBUG_SAVE_PNG:
+        preview = levels_to_preview_image(levels)
+        preview.save(DEBUG_PREVIEW_PATH)
+        print(f"Wrote {DEBUG_PREVIEW_PATH} (quantized, native orientation, {preview.size[0]}x{preview.size[1]})")
 
     with open(OUTPUT_BIN, "wb") as f:
         f.write(packed)
