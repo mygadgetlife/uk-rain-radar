@@ -134,26 +134,17 @@ def get_latest_radar_path(session):
 # Image processing: composite -> 4-level grayscale -> rotate -> 2bpp pack
 # ---------------------------------------------------------------------------
 
-BAYER_4X4 = np.array([
-    [0, 8, 2, 10],
-    [12, 4, 14, 6],
-    [3, 11, 1, 9],
-    [15, 7, 13, 5],
-]) / 16.0
-
-
-def ordered_dither_to_4level(gray_img):
+def quantize_to_4level(gray_img):
     """gray_img: PIL 'L' image. Returns an array of values in {0,1,2,3}
-    (0 = white, 3 = black) using 4x4 Bayer ordered dithering."""
+    (0 = white, 3 = black) using simple nearest-level thresholding --
+    no dithering. RainViewer's radar tiles are already flat colour bands
+    rather than smooth gradients, so dithering (designed to fake extra
+    shades by mixing black/white pixels at a fine spatial scale) mostly
+    adds visual noise here rather than useful detail."""
     arr = np.asarray(gray_img, dtype=np.float64) / 255.0
-    h, w = arr.shape
-    bayer_tiled = np.tile(BAYER_4X4, (h // 4 + 1, w // 4 + 1))[:h, :w]
-
-    ink = 1.0 - arr
-    levels = 3
-    dithered = ink + (bayer_tiled - 0.5) / levels
-    quant = np.clip(np.round(dithered * levels), 0, levels).astype(np.uint8)
-    return quant  # 0 = white ... 3 = black
+    ink = 1.0 - arr  # 0 = white ... 1 = black
+    levels = np.clip(np.round(ink * 3), 0, 3).astype(np.uint8)
+    return levels  # 0 = white ... 3 = black
 
 
 def levels_to_preview_image(levels):
@@ -220,7 +211,7 @@ def build_frame():
     # down or mirrored.
     native = gray.transpose(Image.ROTATE_90)
 
-    levels = ordered_dither_to_4level(native)  # our convention: 0=white ... 3=black
+    levels = quantize_to_4level(native)  # our convention: 0=white ... 3=black
 
     if DEBUG_SAVE_PNG:
         preview = levels_to_preview_image(levels)
