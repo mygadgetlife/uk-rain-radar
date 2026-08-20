@@ -1,4 +1,4 @@
-name: Update radar bitmap
+name: Update radar bitmapp
 
 on:
   schedule:
