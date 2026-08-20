@@ -1,0 +1,48 @@
+name: Update radar bitmap
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes (GitHub may delay this a few min under load)
+  workflow_dispatch:          # lets you trigger it manually from the Actions tab
+
+permissions:
+  contents: write            # needed so the workflow can push to the data branch
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pillow requests numpy
+
+      - name: Fetch and render radar frame
+        run: python fetch_radar.py
+
+      # Publishes radar_300x400_2bpp.bin + the debug PNGs to a separate
+      # `data` branch as ONE commit, force-pushed each run. This branch
+      # never accumulates history -- it's always exactly 1 commit, so repo
+      # size stays flat no matter how many times this runs. `main` never
+      # gets touched by this step, keeping your code history clean.
+      - name: Publish to data branch (squashed, no growing history)
+        run: |
+          mkdir /tmp/data-branch
+          cp radar_300x400_2bpp.bin debug_composite.png debug_preview.png /tmp/data-branch/
+          cd /tmp/data-branch
+
+          git init -q
+          git checkout -q -b data
+          git config user.name "radar-bot"
+          git config user.email "radar-bot@users.noreply.github.com"
+          git add .
+          git commit -q -m "Radar update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -q -f origin data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
