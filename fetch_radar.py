@@ -67,6 +67,7 @@ OUTPUT_BIN = "radar_300x400_2bpp.bin"
 # the pipeline -- committing PNGs every 15 min bloats repo history faster
 # than the tiny .bin does.
 DEBUG_SAVE_PNG = True
+DEBUG_RAW_TILES_PATH = "debug_raw_tiles.png"  # straight from RainViewer, before ANY processing
 DEBUG_COMPOSITE_PATH = "debug_composite.png"  # full-color, logical portrait, human-readable
 DEBUG_PREVIEW_PATH = "debug_preview.png"      # quantized 4-gray, native rotation -- matches panel exactly
 
@@ -186,7 +187,16 @@ def build_frame():
     radar_tile_url = (
         host + path + f"/{TILE_SIZE}/{{z}}/{{x}}/{{y}}/{COLOR_SCHEME}/{SMOOTH}_{SNOW}.png"
     )
+    print(f"Tile URL template: {radar_tile_url}")
     radar_img = stitch_radar_tiles(radar_tile_url, UK_BBOX, ZOOM, TILE_SIZE, session)
+
+    if DEBUG_SAVE_PNG:
+        # Straight from RainViewer, before resize/composite/coastline/quantize
+        # -- if this alone doesn't show a believable precipitation pattern,
+        # the bug is in the fetch itself, not anything downstream.
+        radar_img.convert("RGB").save(DEBUG_RAW_TILES_PATH)
+        print(f"Wrote {DEBUG_RAW_TILES_PATH} (raw stitched tiles, {radar_img.size[0]}x{radar_img.size[1]})")
+
     radar_img = radar_img.resize((LOGICAL_WIDTH, LOGICAL_HEIGHT), Image.LANCZOS).convert("RGBA")
 
     white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
