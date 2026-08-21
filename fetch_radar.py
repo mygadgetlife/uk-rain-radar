@@ -205,7 +205,7 @@ def build_frame():
     print(f"Latest radar frame: {time.strftime('%H:%M:%S', time.gmtime(frame_time))} UTC")
 
     radar_tile_url = (
-        host + path + f"/{TILE_SIZE}/{{z}}/{{x}}/{{y}}/{COLOR_SCHEME}/{SMOOTH}_{SNOW}.png"
+        host + path + f"/256/{{z}}/{{x}}/{{y}}/{COLOR_SCHEME}/{SMOOTH}_{SNOW}.png"
     )
     print(f"Tile URL template: {radar_tile_url}")
     radar_img = stitch_radar_tiles(radar_tile_url, UK_BBOX, ZOOM, TILE_SIZE, session)
