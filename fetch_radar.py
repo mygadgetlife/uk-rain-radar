@@ -205,7 +205,7 @@ def build_frame():
     print(f"Latest radar frame: {time.strftime('%H:%M:%S', time.gmtime(frame_time))} UTC")
 
     radar_tile_url = (
-        host + path + f"/256/{{z}}/{{x}}/{{y}}/{COLOR_SCHEME}/{SMOOTH}_{SNOW}.png"
+        host + path + f"/{TILE_SIZE}/{{z}}/{{x}}/{{y}}/{COLOR_SCHEME}/{SMOOTH}_{SNOW}.png"
     )
     print(f"Tile URL template: {radar_tile_url}")
     radar_img = stitch_radar_tiles(radar_tile_url, UK_BBOX, ZOOM, TILE_SIZE, session)
@@ -217,7 +217,7 @@ def build_frame():
         radar_img.convert("RGB").save(DEBUG_RAW_TILES_PATH)
         print(f"Wrote {DEBUG_RAW_TILES_PATH} (raw stitched tiles, {radar_img.size[0]}x{radar_img.size[1]})")
 
-    radar_img = radar_img.resize((LOGICAL_WIDTH, LOGICAL_HEIGHT), Image.LANCZOS).convert("RGBA")
+    radar_img = radar_img.resize((LOGICAL_WIDTH * 2, LOGICAL_HEIGHT * 2), Image.LANCZOS).convert("RGBA")
 
     white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
     composite = Image.alpha_composite(white_bg, radar_img)
