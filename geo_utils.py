@@ -14,7 +14,7 @@ reason about while plotting the UK, which is itself taller than it is wide.
 import math
 
 TILE_SIZE = 256
-ZOOM = 3
+ZOOM = 12
 
 # Logical (portrait) output size -- what you actually see once the panel
 # is physically mounted rotated 90 degrees.
