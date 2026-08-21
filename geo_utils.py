@@ -13,7 +13,7 @@ reason about while plotting the UK, which is itself taller than it is wide.
 
 import math
 
-TILE_SIZE = 256
+TILE_SIZE = 512
 ZOOM = 6
 
 # Logical (portrait) output size -- what you actually see once the panel
