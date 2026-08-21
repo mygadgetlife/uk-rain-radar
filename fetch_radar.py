@@ -114,28 +114,8 @@ def stitch_radar_tiles(url_template, bbox, zoom, tile_size, session):
                 print(f"  tile fetch failed ({tx},{ty}): {e}")
                 tile = Image.new("RGBA", (tile_size, tile_size), (255, 255, 255, 0))
             canvas.paste(tile, (col * tile_size, row * tile_size))
-    # --- FIX START: Force perfect 300x400 bounding box alignment ---
-    # Crop to the web-mercator rounded bounding box first
-    raw_cropped = canvas.crop(crop_box)
-    
-    # Calculate exactly what height matches the cropped width to maintain a strict 300:400 aspect ratio
-    target_ratio = LOGICAL_WIDTH / LOGICAL_HEIGHT # 0.75
-    w, h = raw_cropped.size
-    
-    if (w / h) > target_ratio:
-        # Image is too wide; trim the sides evenly
-        new_w = int(h * target_ratio)
-        left = (w - new_w) // 2
-        final_crop = (left, 0, left + new_w, h)
-    else:
-        # Image is too tall; trim the top/bottom evenly
-        new_h = int(w / target_ratio)
-        top = (h - new_h) // 2
-        final_crop = (0, top, w, top + new_h)
-        
-    return raw_cropped.crop(final_crop)
-    # --- FIX END ---
-    # return canvas.crop(crop_box)
+
+    return canvas.crop(crop_box)
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +197,7 @@ def build_frame():
         radar_img.convert("RGB").save(DEBUG_RAW_TILES_PATH)
         print(f"Wrote {DEBUG_RAW_TILES_PATH} (raw stitched tiles, {radar_img.size[0]}x{radar_img.size[1]})")
 
-    radar_img = radar_img.resize((LOGICAL_WIDTH * 2, LOGICAL_HEIGHT * 2), Image.LANCZOS).convert("RGBA")
+    radar_img = radar_img.resize((LOGICAL_WIDTH, LOGICAL_HEIGHT), Image.LANCZOS).convert("RGBA")
 
     white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
     composite = Image.alpha_composite(white_bg, radar_img)
