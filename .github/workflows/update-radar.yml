@@ -32,7 +32,7 @@ jobs:
       - name: Publish to data branch (squashed, no growing history)
         run: |
           mkdir /tmp/data-branch
-          cp radar_300x400_2bpp.bin debug_composite.png debug_preview.png /tmp/data-branch/
+          cp radar_300x400_2bpp.bin debug_raw_tiles.png debug_composite.png debug_preview.png /tmp/data-branch/
           cd /tmp/data-branch
 
           git init -q
