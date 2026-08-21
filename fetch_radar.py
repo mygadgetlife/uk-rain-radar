@@ -167,12 +167,18 @@ def levels_to_preview_image(levels):
 
 
 def pack_2bpp(levels):
-    """Pack a (H, W) array of 2-bit values (0-3) into bytes, 4 pixels/byte,
-    MSB-first, matching the format Waveshare's 4Gray demo code expects."""
+    """Pack a (H, W) array of 2-bit values (0-3) into bytes, 4 pixels/byte.
+
+    Bit order matches Waveshare's EPD_4IN2_4GrayDisplay() unpacking loop
+    specifically (confirmed by tracing their driver source) -- it reads
+    each byte's four pixels starting from the LOWEST bits, so the first
+    (leftmost) pixel of each group of 4 needs to go in the lowest 2 bits,
+    not the highest. This is the opposite of the "obvious" MSB-first
+    layout, which is exactly what caused a scrambled image originally."""
     h, w = levels.shape
     assert w % 4 == 0, "width must be a multiple of 4 for clean 2bpp packing"
     flat = levels.reshape(h, w // 4, 4)
-    packed = (flat[:, :, 0] << 6) | (flat[:, :, 1] << 4) | (flat[:, :, 2] << 2) | flat[:, :, 3]
+    packed = (flat[:, :, 3] << 6) | (flat[:, :, 2] << 4) | (flat[:, :, 1] << 2) | flat[:, :, 0]
     return packed.astype(np.uint8).tobytes()
 
 
@@ -214,13 +220,20 @@ def build_frame():
     # down or mirrored.
     native = gray.transpose(Image.ROTATE_90)
 
-    levels = ordered_dither_to_4level(native)
-    packed = pack_2bpp(levels)
+    levels = ordered_dither_to_4level(native)  # our convention: 0=white ... 3=black
 
     if DEBUG_SAVE_PNG:
         preview = levels_to_preview_image(levels)
         preview.save(DEBUG_PREVIEW_PATH)
         print(f"Wrote {DEBUG_PREVIEW_PATH} (quantized, native orientation, {preview.size[0]}x{preview.size[1]})")
+
+    # Waveshare's EPD_4IN2_4GrayDisplay() expects the OPPOSITE level
+    # convention (0=black ... 3=white) -- confirmed by tracing their driver
+    # source. Invert only right here, at the point of packing, so `levels`
+    # everywhere else (including the debug preview above) stays in the
+    # intuitive white-to-black convention.
+    driver_levels = 3 - levels
+    packed = pack_2bpp(driver_levels)
 
     with open(OUTPUT_BIN, "wb") as f:
         f.write(packed)
