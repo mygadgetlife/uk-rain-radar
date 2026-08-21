@@ -213,29 +213,13 @@ def build_frame():
     if DEBUG_SAVE_PNG:
         composite.convert("RGB").save(DEBUG_COMPOSITE_PATH)
         print(f"Wrote {DEBUG_COMPOSITE_PATH} (full-color, {composite.size[0]}x{composite.size[1]})")
-    # --- FIX START: Extract the true rain layer based on its Alpha channel ---
-    # Split the resized radar image into its components (R, G, B, Alpha)
-    _, _, _, radar_alpha = radar_img.split()
-    
-    # Create a clean grayscale target image (Start with solid White)
-    gray_target = Image.new("L", radar_img.size, 255)
-    
-    # Create the rain print layer (The heavier the alpha, the darker the gray)
-    # This directly transforms 0 (no rain) -> 255 (white) and 255 (heavy rain) -> 0 (black)
-    rain_intensity = Image.eval(radar_alpha, lambda a: 255 - a)
-    
-    # Composite the rain profile onto the clean white canvas using the original alpha mask
-    gray_target.paste(rain_intensity, (0, 0), mask=radar_alpha)
-    
-    # Burn the coastline overlay into our grayscale canvas so it matches the display output
-    coast_alpha = coastline.split()[3]
-    gray_target.paste(0, (0, 0), mask=coast_alpha) # Draws the coastline as solid black (value 0)
-    # --- FIX END ---
+
+    gray = composite.convert("L")
 
     # Rotate logical portrait (300x400) into the controller's native buffer
     # order (400x300). Flip to ROTATE_270 if the mounted panel reads upside
     # down or mirrored.
-    native = gray_target.transpose(Image.ROTATE_90)
+    native = gray.transpose(Image.ROTATE_90)
 
     levels = quantize_to_4level(native)  # our convention: 0=white ... 3=black
 
