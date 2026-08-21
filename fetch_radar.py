@@ -203,7 +203,7 @@ def build_frame():
     composite = Image.alpha_composite(white_bg, radar_img)
 
     coastline = Image.open(COASTLINE_OVERLAY_PATH).convert("RGBA")
-     if coastline.size != composite.size:
+    if coastline.size != composite.size:
         raise RuntimeError(
             f"coastline_overlay.png is {coastline.size}, expected {composite.size}. "
             "Re-run build_coastline_overlay.py after changing geo_utils dimensions."
