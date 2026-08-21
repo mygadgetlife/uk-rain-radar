@@ -197,17 +197,17 @@ def build_frame():
         radar_img.convert("RGB").save(DEBUG_RAW_TILES_PATH)
         print(f"Wrote {DEBUG_RAW_TILES_PATH} (raw stitched tiles, {radar_img.size[0]}x{radar_img.size[1]})")
 
-    radar_img = radar_img.resize((LOGICAL_WIDTH * 2, LOGICAL_HEIGHT * 2), Image.LANCZOS).convert("RGBA")
+    radar_img = radar_img.resize((LOGICAL_WIDTH, LOGICAL_HEIGHT), Image.LANCZOS).convert("RGBA")
 
     white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
     composite = Image.alpha_composite(white_bg, radar_img)
 
     coastline = Image.open(COASTLINE_OVERLAY_PATH).convert("RGBA")
-    # if coastline.size != composite.size:
-    #    raise RuntimeError(
-    #        f"coastline_overlay.png is {coastline.size}, expected {composite.size}. "
-    #        "Re-run build_coastline_overlay.py after changing geo_utils dimensions."
-    #    )
+     if coastline.size != composite.size:
+        raise RuntimeError(
+            f"coastline_overlay.png is {coastline.size}, expected {composite.size}. "
+            "Re-run build_coastline_overlay.py after changing geo_utils dimensions."
+        )
     composite = Image.alpha_composite(composite, coastline)
 
     if DEBUG_SAVE_PNG:
