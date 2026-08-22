@@ -37,7 +37,7 @@ import io
 import time
 import requests
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 import geo_utils
 
@@ -70,6 +70,9 @@ DEBUG_SAVE_PNG = True
 DEBUG_RAW_TILES_PATH = "debug_raw_tiles.png"  # straight from RainViewer, before ANY processing
 DEBUG_COMPOSITE_PATH = "debug_composite.png"  # full-color, logical portrait, human-readable
 DEBUG_PREVIEW_PATH = "debug_preview.png"      # quantized 4-gray, native rotation -- matches panel exactly
+
+SHOW_TIMESTAMP = True
+TIMESTAMP_BAR_HEIGHT = 18  # pixels, in logical portrait space
 
 USER_AGENT = "uk-radar-eink-display/1.0 (personal project; contact: you@example.com)"
 RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json"
@@ -181,6 +184,27 @@ def pack_2bpp(levels):
     return packed.astype(np.uint8).tobytes()
 
 
+def draw_timestamp(img):
+    """Draw the current UTC date/time as a solid bar across the top of the
+    LOGICAL portrait image, using PIL's built-in default font (no font
+    file to source or host). This runs before the 90-degree rotation into
+    the panel's native buffer order, so "top" here just means y=0 --
+    no need to reverse-engineer where "top" ends up after rotation."""
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    label = time.strftime("%a %d %b %Y   %H:%M UTC", time.gmtime())
+
+    draw.rectangle([0, 0, img.width, TIMESTAMP_BAR_HEIGHT], fill=(255, 255, 255, 255))
+    bbox = draw.textbbox((0, 0), label, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    draw.text(
+        ((img.width - text_w) / 2, (TIMESTAMP_BAR_HEIGHT - text_h) / 2 - bbox[1]),
+        label, fill=(0, 0, 0, 255), font=font,
+    )
+    return img
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -216,6 +240,9 @@ def build_frame():
             "Re-run build_coastline_overlay.py after changing geo_utils dimensions."
         )
     composite = Image.alpha_composite(composite, coastline)
+
+    if SHOW_TIMESTAMP:
+        composite = draw_timestamp(composite)
 
     if DEBUG_SAVE_PNG:
         composite.convert("RGB").save(DEBUG_COMPOSITE_PATH)
