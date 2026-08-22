@@ -88,8 +88,15 @@ def tile_pixel_bounds(bbox, zoom, tile_size):
 
     px0 = int((x0 - tx0) * tile_size)
     py0 = int((y0 - ty0) * tile_size)
-    px1 = int((x1 - tx0) * tile_size) + (tx1 - tx0) * tile_size
-    py1 = int((y1 - ty0) * tile_size) + (ty1 - ty0) * tile_size
+    # Bug fix: these must measure the fractional offset within the LAST
+    # tile (tx1/ty1), not repeat the offset from tx0/ty0 -- using tx0/ty0
+    # here double-counted the full-tile span already included in the
+    # "+ (tx1-tx0)*tile_size" term, producing a crop box far larger than
+    # the actual stitched canvas. PIL pads that excess with transparent
+    # pixels rather than erroring, which is what caused the radar layer
+    # to appear squeezed into the top-left quadrant after resizing.
+    px1 = int((x1 - tx1) * tile_size) + (tx1 - tx0) * tile_size
+    py1 = int((y1 - ty1) * tile_size) + (ty1 - ty0) * tile_size
 
     return tx0, ty0, tx1, ty1, (px0, py0, px1, py1)
 
