@@ -129,6 +129,78 @@ def stitch_radar_tiles(url_template, bbox, zoom, tile_size, session):
 
 
 # ---------------------------------------------------------------------------
+# Recover true intensity from colour: RainViewer's "Universal Blue" palette
+# cycles through hue (blue -> yellow -> orange -> red -> magenta -> white ->
+# green) rather than being monotonically brighter with intensity. Naive
+# RGB->luminance conversion sees the extreme end of the scale (magenta,
+# white, green) as LIGHT, since those are visually bright colours -- even
+# though they represent the heaviest rain on the scale. Fix: match each
+# pixel against RainViewer's own published dBZ->colour table
+# (rainviewer.com/files/rainviewer_api_colors_table.csv, "Universal Blue"
+# column) and derive ink from the recovered dBZ value directly, not from
+# how bright the matched colour happens to look.
+# ---------------------------------------------------------------------------
+
+_DBZ_COLOR_TABLE = [
+    # (dBZ, R, G, B) -- sampled every 5 dBZ from RainViewer's published table
+    (-10, 0x63, 0x61, 0x59),
+    (-5,  0x72, 0x6e, 0x61),
+    (0,   0x82, 0x7b, 0x69),
+    (5,   0x92, 0x88, 0x71),
+    (10,  0xce, 0xc0, 0x87),
+    (15,  0x88, 0xdd, 0xee),
+    (20,  0x00, 0xa3, 0xe0),
+    (25,  0x00, 0x77, 0xaa),
+    (30,  0x00, 0x55, 0x88),
+    (35,  0xff, 0xee, 0x00),
+    (40,  0xff, 0xaa, 0x00),
+    (45,  0xff, 0x44, 0x00),
+    (50,  0xc1, 0x00, 0x00),
+    (55,  0xff, 0xaa, 0xff),
+    (60,  0xff, 0x77, 0xff),
+]
+# Deliberately stops at 60 dBZ (heavy rain / hail threshold). Beyond this,
+# RainViewer's palette cycles to white/green, which after alpha-compositing
+# is visually indistinguishable from "no rain" by colour alone -- ALPHA_
+# THRESHOLD below handles "is there precipitation at all" separately using
+# the tile's actual alpha channel, so matching doesn't need to disambiguate
+# the extreme end of the hue cycle at all: anything that intense just
+# clamps to maximum ink, which is the semantically correct outcome anyway.
+_DBZ_MIN, _DBZ_MAX = -10, 60
+_REF_RGB = np.array([[r, g, b] for _, r, g, b in _DBZ_COLOR_TABLE], dtype=np.float64)
+_REF_DBZ = np.array([d for d, _, _, _ in _DBZ_COLOR_TABLE], dtype=np.float64)
+ALPHA_THRESHOLD = 20  # out of 255 -- below this, treat as no precipitation regardless of matched colour
+
+
+def recolor_radar_by_intensity(radar_rgba_img):
+    """Replaces each radar pixel's RGB with a grayscale value derived from
+    recovered dBZ (nearest-colour match against RainViewer's own table),
+    keeping the original alpha channel intact. Drop-in replacement for the
+    raw colour tile at this point in the pipeline -- everything downstream
+    (compositing, coastline, quantization) is unchanged."""
+    arr = np.asarray(radar_rgba_img, dtype=np.float64)
+    rgb = arr[:, :, :3]
+    alpha = arr[:, :, 3]
+    h, w = alpha.shape
+
+    flat_rgb = rgb.reshape(-1, 3)
+    dists = np.sum((flat_rgb[:, None, :] - _REF_RGB[None, :, :]) ** 2, axis=2)
+    nearest = np.argmin(dists, axis=1)
+    dbz = _REF_DBZ[nearest].reshape(h, w)
+
+    ink = np.clip((dbz - _DBZ_MIN) / (_DBZ_MAX - _DBZ_MIN), 0, 1)
+    ink[alpha < ALPHA_THRESHOLD] = 0.0  # no precipitation -> no ink, regardless of matched colour
+
+    gray_val = ((1.0 - ink) * 255).astype(np.uint8)
+    out = np.zeros((h, w, 4), dtype=np.uint8)
+    out[:, :, 0] = gray_val
+    out[:, :, 1] = gray_val
+    out[:, :, 2] = gray_val
+    out[:, :, 3] = arr[:, :, 3].astype(np.uint8)  # preserve original alpha
+    return Image.fromarray(out, mode="RGBA")
+
+
+# ---------------------------------------------------------------------------
 # Radar frame lookup
 # ---------------------------------------------------------------------------
 
@@ -228,6 +300,10 @@ def build_frame():
         radar_img.convert("RGB").save(DEBUG_RAW_TILES_PATH)
         print(f"Wrote {DEBUG_RAW_TILES_PATH} (raw stitched tiles, {radar_img.size[0]}x{radar_img.size[1]})")
 
+    # Recolor by recovered intensity BEFORE resizing -- resizing hue-cycling
+    # colour data first would blend adjacent colour bands at edges into
+    # colours that don't correspond to any real dBZ value.
+    radar_img = recolor_radar_by_intensity(radar_img.convert("RGBA"))
     radar_img = radar_img.resize((LOGICAL_WIDTH, LOGICAL_HEIGHT), Image.LANCZOS).convert("RGBA")
 
     white_bg = Image.new("RGBA", radar_img.size, (255, 255, 255, 255))
