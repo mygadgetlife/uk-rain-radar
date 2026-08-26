@@ -58,7 +58,7 @@ SNOW = 1               # 1 = show snow separately
 LOGICAL_WIDTH = geo_utils.EPD_WIDTH    # 300
 LOGICAL_HEIGHT = geo_utils.EPD_HEIGHT  # 400
 
-COASTLINE_OVERLAY_PATH = "coastline_overlay.png"  # built once by build_coastline_overlay.py
+COASTLINE_OVERLAY_PATH = "custom_coastline_overlay.png"  # built once by build_coastline_overlay.py
 
 OUTPUT_BIN = "radar_300x400_2bpp.bin"
 
