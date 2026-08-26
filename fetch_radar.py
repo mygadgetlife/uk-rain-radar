@@ -166,7 +166,7 @@ _DBZ_COLOR_TABLE = [
 # the tile's actual alpha channel, so matching doesn't need to disambiguate
 # the extreme end of the hue cycle at all: anything that intense just
 # clamps to maximum ink, which is the semantically correct outcome anyway.
-_DBZ_MIN, _DBZ_MAX = -10, 35
+_DBZ_MIN, _DBZ_MAX = -10, 40
 _REF_RGB = np.array([[r, g, b] for _, r, g, b in _DBZ_COLOR_TABLE], dtype=np.float64)
 _REF_DBZ = np.array([d for d, _, _, _ in _DBZ_COLOR_TABLE], dtype=np.float64)
 ALPHA_THRESHOLD = 20  # out of 255 -- below this, treat as no precipitation regardless of matched colour
