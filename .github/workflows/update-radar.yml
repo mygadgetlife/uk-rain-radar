@@ -7,7 +7,7 @@ on:
     # of every hour (plus other common minute marks) is exactly when load
     # peaks, since huge numbers of repos schedule crons at those "obvious"
     # times. Offsetting to :12/:42 avoids that crowd.
-    - cron: "*/27 * * * *"   # every 30 minutes, at 12 and 42 past the hour
+    - cron: "*/15 * * * *"   # every 30 minutes, at 12 and 42 past the hour
   workflow_dispatch:          # lets you trigger it manually from the Actions tab
 
 permissions:
