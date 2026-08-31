@@ -66,7 +66,7 @@ OUTPUT_BIN = "radar_300x400_2bpp.bin"
 # output against a photo of the physical panel. Set False once you trust
 # the pipeline -- committing PNGs every 15 min bloats repo history faster
 # than the tiny .bin does.
-DEBUG_SAVE_PNG = True
+DEBUG_SAVE_PNG = False
 DEBUG_RAW_TILES_PATH = "debug_raw_tiles.png"  # straight from RainViewer, before ANY processing
 DEBUG_COMPOSITE_PATH = "debug_composite.png"  # full-color, logical portrait, human-readable
 DEBUG_PREVIEW_PATH = "debug_preview.png"      # quantized 4-gray, native rotation -- matches panel exactly
